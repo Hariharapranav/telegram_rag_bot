@@ -1,0 +1,16 @@
+Acme Corporation — Flexible & Remote Work Guidelines
+
+1. Hybrid Work Model:
+Acme Corporation operates on a flexible hybrid work model. Full-time team members are permitted to work remotely for up to 3 days per week, with a minimum requirement of 2 days on-site at their designated company office.
+
+2. Core Collaboration Hours:
+All employees, whether working remotely or in-office, must be reachable and available for team meetings during core collaboration hours between 10:00 AM and 4:00 PM local time.
+
+3. Home Office Equipment Stipend:
+Each new full-time employee receives a one-time reimbursement stipend of $500 for home office setup, including ergonomic chairs, external monitors, keyboards, or noise-canceling headsets.
+
+4. Cybersecurity & IT Requirements:
+Remote work must be conducted exclusively on Acme-issued laptops with company VPN enabled at all times. Employees are strictly prohibited from storing confidential company documents or source code on personal devices or unsecured cloud storage.
+
+5. International Remote Work:
+Employees in good standing may request up to 30 business days per calendar year to work remotely from an approved international location, provided time zone overlap with core hours is maintained.
