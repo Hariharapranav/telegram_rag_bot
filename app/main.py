@@ -24,6 +24,18 @@ telegram_app = None
 bot_polling_task = None
 
 
+async def get_or_init_telegram_app():
+    global telegram_app
+    if telegram_app is None and settings.telegram.is_configured:
+        try:
+            telegram_app = build_telegram_application()
+            await telegram_app.initialize()
+            await telegram_app.start()
+        except Exception as e:
+            logger.error("Failed to lazily initialize Telegram bot: %s", e)
+    return telegram_app
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global telegram_app, bot_polling_task
@@ -44,19 +56,18 @@ async def lifespan(app: FastAPI):
     # 2. Initialize Telegram Bot
     if settings.telegram.is_configured:
         try:
-            telegram_app = build_telegram_application()
-            await telegram_app.initialize()
-            await telegram_app.start()
-
-            if settings.telegram.mode == "polling":
-                logger.info("Starting Telegram bot in POLLING mode...")
-                await telegram_app.updater.start_polling(drop_pending_updates=True)
-            elif settings.telegram.mode == "webhook" and settings.telegram.webhook_url:
-                logger.info("Setting Telegram webhook to: %s", settings.telegram.webhook_url)
-                await telegram_app.bot.set_webhook(
-                    url=settings.telegram.webhook_url,
-                    secret_token=settings.telegram.secret_token_plain
-                )
+            bot_app = await get_or_init_telegram_app()
+            if bot_app:
+                if settings.telegram.mode == "polling":
+                    logger.info("Starting Telegram bot in POLLING mode...")
+                    await bot_app.updater.start_polling(drop_pending_updates=True)
+                elif settings.telegram.mode == "webhook" and settings.telegram.webhook_url:
+                    logger.info("Setting Telegram webhook to: %s", settings.telegram.webhook_url)
+                    await bot_app.bot.set_webhook(
+                        url=settings.telegram.webhook_url,
+                        secret_token=settings.telegram.secret_token_plain,
+                        drop_pending_updates=True
+                    )
         except Exception as e:
             logger.error("Failed to start Telegram bot: %s", e)
     else:
@@ -111,13 +122,55 @@ async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: Op
     if settings.TELEGRAM_SECRET_TOKEN and x_telegram_bot_api_secret_token != settings.TELEGRAM_SECRET_TOKEN:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid secret token")
 
-    if not telegram_app:
+    bot_app = await get_or_init_telegram_app()
+    if not bot_app:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Telegram bot not initialized")
 
     data = await request.json()
-    update = Update.de_json(data, telegram_app.bot)
-    await telegram_app.process_update(update)
+    update = Update.de_json(data, bot_app.bot)
+    await bot_app.process_update(update)
     return {"status": "ok"}
+
+
+@app.get("/api/telegram/set-webhook", tags=["Telegram"])
+async def trigger_set_webhook():
+    """Helper endpoint to register or verify the Telegram webhook."""
+    bot_app = await get_or_init_telegram_app()
+    if not bot_app:
+        return {"error": "TELEGRAM_BOT_TOKEN not configured"}
+    if not settings.TELEGRAM_WEBHOOK_URL:
+        return {"error": "TELEGRAM_WEBHOOK_URL environment variable is not configured"}
+
+    res = await bot_app.bot.set_webhook(
+        url=settings.TELEGRAM_WEBHOOK_URL,
+        secret_token=settings.telegram.secret_token_plain,
+        drop_pending_updates=True
+    )
+    info = await bot_app.bot.get_webhook_info()
+    return {
+        "webhook_set": res,
+        "url": info.url,
+        "has_custom_certificate": info.has_custom_certificate,
+        "pending_update_count": info.pending_update_count,
+        "last_error_message": info.last_error_message,
+        "last_error_date": str(info.last_error_date) if info.last_error_date else None
+    }
+
+
+@app.get("/api/telegram/webhook-info", tags=["Telegram"])
+async def get_webhook_info():
+    """Helper endpoint to view Telegram's current webhook delivery status."""
+    bot_app = await get_or_init_telegram_app()
+    if not bot_app:
+        return {"error": "TELEGRAM_BOT_TOKEN not configured"}
+    info = await bot_app.bot.get_webhook_info()
+    return {
+        "url": info.url,
+        "has_custom_certificate": info.has_custom_certificate,
+        "pending_update_count": info.pending_update_count,
+        "last_error_message": info.last_error_message,
+        "last_error_date": str(info.last_error_date) if info.last_error_date else None
+    }
 
 
 @app.post("/api/documents/upload", tags=["Documents"])
