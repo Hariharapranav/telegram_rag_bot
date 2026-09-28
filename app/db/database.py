@@ -17,9 +17,10 @@ def normalize_database_url(raw_url: str) -> tuple[str, Dict[str, Any]]:
     specifically configuring Supabase PostgreSQL and connection poolers.
     """
     if not raw_url or not raw_url.strip():
-        # Fallback to local sqlite if no DATABASE_URL provided yet
-        logger.warning("DATABASE_URL is not set in .env. Falling back to local sqlite+aiosqlite:///./enterprise_rag.db")
-        return "sqlite+aiosqlite:///./enterprise_rag.db", {}
+        # Fallback to local sqlite if no DATABASE_URL provided yet (/tmp on Vercel)
+        db_path = "/tmp/enterprise_rag.db" if os.getenv("VERCEL") else "./enterprise_rag.db"
+        logger.warning(f"DATABASE_URL is not set in .env. Falling back to local sqlite+aiosqlite:///{db_path}")
+        return f"sqlite+aiosqlite:///{db_path}", {}
 
     url = raw_url.strip()
     connect_args: Dict[str, Any] = {}
@@ -46,7 +47,6 @@ def normalize_database_url(raw_url: str) -> tuple[str, Dict[str, Any]]:
         connect_args["ssl"] = "require"
         # Disable prepared statement caching when connecting through Supabase pooler or direct
         connect_args["statement_cache_size"] = 0
-        connect_args["prepared_statement_cache_size"] = 0
 
     return url, connect_args
 

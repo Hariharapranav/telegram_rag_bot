@@ -42,16 +42,19 @@ async def lifespan(app: FastAPI):
 
     # 1. Initialize DB tables
     logger.info("Initializing database tables...")
-    async with engine.begin() as conn:
-        if conn.dialect.name == "postgresql":
-            try:
-                from sqlalchemy import text
-                await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
-                logger.info("pgvector extension verified.")
-            except Exception as exc:
-                logger.warning("Could not create pgvector extension automatically: %s", exc)
-        await conn.run_sync(Base.metadata.create_all)
-    logger.info("Database tables initialized.")
+    try:
+        async with engine.begin() as conn:
+            if conn.dialect.name == "postgresql":
+                try:
+                    from sqlalchemy import text
+                    await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
+                    logger.info("pgvector extension verified.")
+                except Exception as exc:
+                    logger.warning("Could not create pgvector extension automatically: %s", exc)
+            await conn.run_sync(Base.metadata.create_all)
+        logger.info("Database tables initialized.")
+    except Exception as e:
+        logger.error("Database initialization failed during startup (continuing): %s", e)
 
     # 2. Initialize Telegram Bot
     if settings.telegram.is_configured:
@@ -61,13 +64,8 @@ async def lifespan(app: FastAPI):
                 if settings.telegram.mode == "polling":
                     logger.info("Starting Telegram bot in POLLING mode...")
                     await bot_app.updater.start_polling(drop_pending_updates=True)
-                elif settings.telegram.mode == "webhook" and settings.telegram.webhook_url:
-                    logger.info("Setting Telegram webhook to: %s", settings.telegram.webhook_url)
-                    await bot_app.bot.set_webhook(
-                        url=settings.telegram.webhook_url,
-                        secret_token=settings.telegram.secret_token_plain,
-                        drop_pending_updates=True
-                    )
+                elif settings.telegram.mode == "webhook":
+                    logger.info("Telegram bot initialized for webhook mode.")
         except Exception as e:
             logger.error("Failed to start Telegram bot: %s", e)
     else:
