@@ -90,6 +90,16 @@ app = FastAPI(
 )
 
 
+@app.get("/", tags=["System"])
+async def root():
+    return {
+        "message": "Welcome to Enterprise RAG Telegram Bot API",
+        "docs": "/docs",
+        "health": "/health",
+        "status": "online"
+    }
+
+
 @app.get("/health", tags=["System"])
 async def health_check():
     """Health check endpoint validating database and cache connectivity."""
