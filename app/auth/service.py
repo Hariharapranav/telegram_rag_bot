@@ -244,8 +244,8 @@ class AuthService:
         )
 
         return (
-            f"🏢 Organization verified: `{org.name}`\n\n"
-            "Please enter your **Admin Email** or **Employee ID**:"
+            f"🏢 Organization verified: **{org.name}**\n\n"
+            "Please enter your **Employee ID**:"
         )
 
     async def process_admin_credential(self, db: AsyncSession, telegram_user_id: int, cred_input: str) -> Tuple[bool, str]:
@@ -259,16 +259,16 @@ class AuthService:
         cred = cred_input.strip()
         user_repo = UserRepository(db)
 
-        # Lookup by email or employee ID (case-insensitive)
-        user = await user_repo.get_by_email(cred, org_id)
+        # Lookup by employee ID (primary) or email (fallback) (case-insensitive)
+        user = await user_repo.get_by_employee_id(org_id, cred)
         if not user:
-            user = await user_repo.get_by_employee_id(org_id, cred)
+            user = await user_repo.get_by_email(cred, org_id)
 
         if not user:
             return False, (
                 "❌ Access Denied: We could not find an account matching "
                 f"`{cred}` in *{org_name}*.\n"
-                "Please verify your Employee ID or Admin Email and try again."
+                "Please verify your Employee ID and try again."
             )
 
         if user.role != "admin":
@@ -296,7 +296,7 @@ class AuthService:
         )
 
         card = (
-            f"🛡️ *Admin Profile Identified*\n"
+            f"🛡️ **Admin Profile Identified**\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━\n"
             f"• **Name:** {user.name}\n"
             f"• **Employee ID:** `{user.employee_id}`\n"
@@ -387,7 +387,7 @@ class AuthService:
         await repo.delete_session(telegram_user_id)
         return (
             "🔒 You have been securely logged out.\n\n"
-            "Use /start to log in as an employee or /admin to log in as an administrator."
+            "Use `/user` to log in as an employee or `/admin` to log in as an administrator."
         )
 
 

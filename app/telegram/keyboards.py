@@ -1,6 +1,20 @@
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 
+def get_start_keyboard() -> InlineKeyboardMarkup:
+    """Action keyboard for /start greeting menu."""
+    keyboard = [
+        [
+            InlineKeyboardButton("👤 Employee Sign In", callback_data="start_user_auth"),
+            InlineKeyboardButton("🛡️ Admin Portal", callback_data="start_admin_auth"),
+        ],
+        [
+            InlineKeyboardButton("ℹ️ Help Guide", callback_data="help")
+        ]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
 def get_employee_menu_keyboard() -> InlineKeyboardMarkup:
     keyboard = [
         [

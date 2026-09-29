@@ -24,17 +24,8 @@ from app.telegram.keyboards import (
 logger = logging.getLogger(__name__)
 
 
-async def safe_reply(msg, text: str, parse_mode: Optional[str] = "Markdown", reply_markup=None):
-    """Safely send reply; fallback to plain text if Markdown entity parsing fails."""
-    try:
-        return await msg.reply_text(text, parse_mode=parse_mode, reply_markup=reply_markup)
-    except Exception as e:
-        logger.warning("Markdown reply failed (%s). Retrying as plain text.", e)
-        try:
-            return await msg.reply_text(text, parse_mode=None, reply_markup=reply_markup)
-        except Exception as exc:
-            logger.error("Failed to send message: %s", exc)
-            return None
+from app.telegram.formatting import safe_reply, safe_edit, markdown_to_telegram_html, strip_markdown
+
 
 
 # ==============================================================================
@@ -532,7 +523,7 @@ async def handle_admin_upload_prompt(update: Update, context: ContextTypes.DEFAU
         prompt = (
             "📤 **Upload Knowledge Base Document**\n"
             "━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"🏢 **Target Organization:** `{org_name}`\n\n"
+            f"🏢 **Organization:** `{org_name}`\n\n"
             "📎 **How to Upload:**\n"
             "Simply attach or drag & drop your document directly into this chat!\n\n"
             "📋 **Allowed Formats:**\n"
@@ -540,9 +531,8 @@ async def handle_admin_upload_prompt(update: Update, context: ContextTypes.DEFAU
             "• 📝 **Plain Text** (`.txt`)\n"
             "• 📘 **Word Document** (`.docx`)\n"
             "• 📑 **Markdown** (`.md`)\n\n"
-            "⚖️ **File Size Limit:** Up to **10 MB**\n"
-            "☁️ **Storage Location:** Supabase Storage (`enterprise-documents/{org_id}/`)\n\n"
-            "💡 *The document will be automatically chunked, embedded with Gemini, and indexed into pgvector.*"
+            "⚖️ **File Size Limit:** Up to **10 MB**\n\n"
+            "💡 *Once uploaded, the document will be processed and immediately available for employee questions.*"
         )
         await safe_reply(msg, prompt, parse_mode="Markdown")
 
@@ -593,7 +583,7 @@ async def handle_admin_document_upload(update: Update, context: ContextTypes.DEF
             )
             return
 
-        status_msg = await safe_reply(msg, f"⏳ Ingesting `{filename}` into Supabase Storage & generating vector embeddings...", parse_mode="Markdown")
+        status_msg = await safe_reply(msg, f"⏳ Processing `{filename}`... extracting text and updating knowledge base.", parse_mode="Markdown")
 
         try:
             tg_file = await context.bot.get_file(doc.file_id)
@@ -609,13 +599,12 @@ async def handle_admin_document_upload(update: Update, context: ContextTypes.DEF
             )
 
             await status_msg.edit_text(
-                f"✅ **Document Uploaded & Ingested!**\n\n"
+                f"✅ **Document Uploaded & Ready!**\n\n"
                 f"📄 **File:** `{res['filename']}`\n"
                 f"🆔 **Document ID:** `{res['document_id']}`\n"
-                f"☁️ **Storage:** Supabase Storage (`{res['storage_path']}`)\n"
                 f"📦 **Size:** `{round(res['file_size']/1024, 1)} KB`\n"
-                f"🧩 **Indexed Chunks:** `{res['chunk_count']}`\n"
-                f"🏢 **Organization:** `{user_sess.organization_id}`\n\n"
+                f"🏢 **Organization:** `{user_sess.organization_id}`\n"
+                f"🟢 **Status:** Active & Searchable\n\n"
                 f"Employees can now query information from this document in Telegram.\n"
                 f"To delete this document later: `/delete_doc {res['document_id']}`",
                 parse_mode="Markdown",

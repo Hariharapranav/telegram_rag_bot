@@ -14,6 +14,7 @@ from telegram.ext import (
 from app.config import settings
 from app.telegram.handlers import (
     handle_start,
+    handle_user,
     handle_help,
     handle_logout,
     handle_text_message,
@@ -65,6 +66,7 @@ def build_telegram_application() -> Application:
 
     # Core commands
     app.add_handler(CommandHandler("start", handle_start))
+    app.add_handler(CommandHandler("user", handle_user))
     app.add_handler(CommandHandler("help", handle_help))
     app.add_handler(CommandHandler("logout", handle_logout))
 

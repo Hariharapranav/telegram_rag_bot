@@ -1,7 +1,7 @@
 import logging
 from typing import Dict, Any, List
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.db.repositories import QueryLogRepository, DocumentRepository
+from app.db.repositories import QueryLogRepository, DocumentRepository, OrganizationRepository
 
 logger = logging.getLogger(__name__)
 
@@ -33,14 +33,19 @@ class AdminAnalyticsService:
     @staticmethod
     async def get_users_summary(session: AsyncSession, organization_id: str) -> str:
         """Format /admin/users output for Telegram display."""
+        org_repo = OrganizationRepository(session)
+        org = await org_repo.get_by_id(organization_id)
+        org_display = f"{org.name} (`{organization_id}`)" if org else f"`{organization_id}`"
+
         repo = QueryLogRepository(session)
         users = await repo.get_user_stats(organization_id)
 
         if not users:
-            return "ℹ️ No user activity has been recorded yet for this organization."
+            return f"ℹ️ No user activity has been recorded yet for {org_display}."
 
         lines = [
             "👥 **User-wise AI Usage Breakdown**\n"
+            f"🏢 **Organization:** {org_display}\n"
             "━━━━━━━━━━━━━━━━━━━━━━"
         ]
         for u in users:
@@ -57,14 +62,19 @@ class AdminAnalyticsService:
     @staticmethod
     async def get_usage_feed(session: AsyncSession, organization_id: str) -> str:
         """Format /admin/usage output for Telegram display."""
+        org_repo = OrganizationRepository(session)
+        org = await org_repo.get_by_id(organization_id)
+        org_display = f"{org.name} (`{organization_id}`)" if org else f"`{organization_id}`"
+
         repo = QueryLogRepository(session)
         logs = await repo.get_usage_summary(organization_id, limit=10)
 
         if not logs:
-            return "ℹ️ No recent query logs found."
+            return f"ℹ️ No recent query logs found for {org_display}."
 
         lines = [
             "📈 **Recent Query Activity Stream**\n"
+            f"🏢 **Organization:** {org_display}\n"
             "━━━━━━━━━━━━━━━━━━━━━━"
         ]
         for log in logs:
@@ -83,19 +93,25 @@ class AdminAnalyticsService:
     @staticmethod
     async def get_documents_summary(session: AsyncSession, organization_id: str) -> str:
         """Format /admin/documents output for Telegram display."""
+        org_repo = OrganizationRepository(session)
+        org = await org_repo.get_by_id(organization_id)
+        org_display = f"{org.name} (`{organization_id}`)" if org else f"`{organization_id}`"
+
         repo = DocumentRepository(session)
         docs = await repo.list_by_org(organization_id)
 
         if not docs:
             return (
                 "📁 **Organization Knowledge Base**\n"
+                f"🏢 **Organization:** {org_display}\n"
                 "━━━━━━━━━━━━━━━━━━━━━━\n"
-                "No documents uploaded yet.\n\n"
-                "📤 **To upload:** Simply send a document file (.pdf, .txt, .md) directly to this chat while authenticated as admin!"
+                "No documents uploaded for this organization yet.\n\n"
+                "📤 **To upload:** Simply attach or drag & drop a file (.pdf, .txt, .docx, .md) into this chat!"
             )
 
         lines = [
             "📁 **Organization Knowledge Base**\n"
+            f"🏢 **Organization:** {org_display}\n"
             "━━━━━━━━━━━━━━━━━━━━━━"
         ]
         for doc in docs:

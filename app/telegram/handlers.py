@@ -17,6 +17,7 @@ from app.rag.retrieval import rag_retriever
 from app.rag.generation import grounded_generator, NOT_FOUND_MESSAGE
 from app.services.usage_tracker import usage_tracker
 from app.telegram.keyboards import (
+    get_start_keyboard,
     get_employee_menu_keyboard,
     get_employee_confirm_keyboard,
     get_admin_confirm_keyboard,
@@ -34,32 +35,26 @@ from app.admin.handlers import (
     handle_create_org,
     handle_list_orgs,
     handle_add_user,
-    handle_admin_upload_prompt
+    handle_admin_upload_prompt,
+    handle_admin_command
 )
 
 logger = logging.getLogger(__name__)
 
 
-async def safe_reply(msg, text: str, parse_mode: Optional[str] = "Markdown", reply_markup=None):
-    """Safely send reply, falling back to plain text if Markdown entity parsing fails."""
-    try:
-        return await msg.reply_text(text, parse_mode=parse_mode, reply_markup=reply_markup)
-    except Exception as e:
-        logger.warning("Markdown reply failed (%s). Retrying as plain text.", e)
-        try:
-            return await msg.reply_text(text, parse_mode=None, reply_markup=reply_markup)
-        except Exception as exc:
-            logger.error("Failed to send message: %s", exc)
-            return None
+from app.telegram.formatting import safe_reply, safe_edit, markdown_to_telegram_html, strip_markdown
+
 
 
 async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /start command."""
+    """Handle /start command — welcome greeting and main navigation menu."""
     if not update.effective_user or not update.effective_message:
         return
 
     msg = update.effective_message
     tg_user_id = update.effective_user.id
+    first_name = update.effective_user.first_name or "there"
+
     async with AsyncSessionLocal() as session:
         user_sess = await auth_service.get_session(session, tg_user_id)
         if user_sess.is_authenticated:
@@ -75,25 +70,69 @@ async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
             org_repo = OrganizationRepository(session)
             org = await org_repo.get_by_id(user_sess.organization_id) if user_sess.organization_id else None
-            org_display = f" • *{org.name}*" if org else ""
+            org_display = f" • **{org.name}**" if org else ""
+
+            greeting = (
+                f"👋 **Hello {first_name}!**\n\n"
+                f"🏢 **Enterprise Assistant**{org_display}\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"Welcome back! You are currently signed in as **{role_badge}**.\n\n"
+                f"💬 Send any question about company policies, benefits, or documentation to get instant answers!\n\n"
+                f"• Type `/admin` to access organization controls (admins)\n"
+                f"• Type `/logout` to sign out"
+            )
+            await safe_reply(msg, greeting, reply_markup=kb)
+            return
+
+        greeting = (
+            f"👋 **Hello {first_name}! Welcome to Enterprise Assistant**\n"
+            "━━━━━━━━━━━━━━━━━━━━━━\n"
+            "I am your intelligent organization assistant powered by Gemini AI and secure multi-tenant RAG.\n\n"
+            "**How would you like to proceed?**\n\n"
+            "• 👤 **Employee / Member:** Send `/user` to log in with your Employee ID and query company policies.\n"
+            "• 🛡️ **Organization Admin:** Send `/admin` to manage documents, users, and view analytics.\n"
+            "• ℹ️ **Need Help?** Send `/help` for detailed command guidance.\n\n"
+            "Tap a button below to get started:"
+        )
+        await safe_reply(msg, greeting, reply_markup=get_start_keyboard())
+
+
+async def handle_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /user command — employee/member authentication & knowledge base portal."""
+    if not update.effective_user or not update.effective_message:
+        return
+
+    msg = update.effective_message
+    tg_user_id = update.effective_user.id
+
+    async with AsyncSessionLocal() as session:
+        user_sess = await auth_service.get_session(session, tg_user_id)
+        if user_sess.is_authenticated:
+            if user_sess.is_bot_admin:
+                role_badge = "Super Bot Admin 👑"
+                kb = get_bot_admin_menu_keyboard()
+            elif user_sess.is_admin:
+                role_badge = "Administrator 🛡️"
+                kb = get_admin_menu_keyboard()
+            else:
+                role_badge = "Employee 👤"
+                kb = get_employee_menu_keyboard()
+
+            org_repo = OrganizationRepository(session)
+            org = await org_repo.get_by_id(user_sess.organization_id) if user_sess.organization_id else None
+            org_display = f" • **{org.name}**" if org else ""
 
             welcome_card = (
-                f"🏢 *Enterprise Assistant Portal*{org_display}\n"
+                f"🏢 **Enterprise Assistant Portal**{org_display}\n"
                 f"━━━━━━━━━━━━━━━━━━━━━━━\n"
                 f"👋 Welcome back! Authenticated as **{role_badge}**.\n\n"
                 f"💬 Send any question about company policies, benefits, or documentation to get instant answers."
             )
-
-            await safe_reply(
-                msg,
-                welcome_card,
-                parse_mode="Markdown",
-                reply_markup=kb
-            )
+            await safe_reply(msg, welcome_card, reply_markup=kb)
             return
 
         reply = await auth_service.start_employee_auth(session, tg_user_id)
-        await safe_reply(msg, reply, parse_mode="Markdown")
+        await safe_reply(msg, reply)
 
 
 async def handle_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -105,27 +144,29 @@ async def handle_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     help_text = (
         "🤖 **Enterprise AI Telegram Assistant — Help Guide**\n"
         "━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        "👑 **Platform Bot Admin:**\n"
-        "• `/botadmin` - Super Admin Portal (Create orgs & manage platform)\n"
-        "• `/create_org` - Register new organization & initial admin\n"
-        "• `/list_orgs` - View all tenant organizations & user counts\n\n"
+        "👋 **General & Employee Commands:**\n"
+        "• `/start` - Welcome & greeting menu\n"
+        "• `/user` - Employee login & Knowledge Base portal\n"
+        "• `/logout` - Securely log out and invalidate your session\n"
+        "• `/help` - Show this help guide\n\n"
         "🛡️ **Organization Admin Commands:**\n"
-        "• `/admin` - Access Organization Admin controls\n"
+        "• `/admin` - Access Organization Admin controls & portal\n"
+        "• `/upload` or `/upload_doc` - Upload a policy document (.pdf, .txt, .docx, .md)\n"
         "• `/add_user` - Register a new employee or admin into your organization\n"
         "• `/delete_doc <id>` - Remove an uploaded document from knowledge base\n"
         "• `/admin/stats` - Total queries, cache hits, cost & latency metrics\n"
         "• `/admin/users` - User-by-user AI usage breakdown\n"
         "• `/admin/usage` - Real-time query activity stream\n"
         "• `/admin/documents` - Ingested documents catalog & upload\n\n"
-        "👤 **Employee Authentication & Queries:**\n"
-        "• `/start` - Authenticate via Employee ID + OTP\n"
-        "• `/logout` - Securely log out and invalidate your session\n"
-        "• Simply ask natural questions about company policies, benefits, and procedures!\n\n"
+        "👑 **Platform Bot Admin:**\n"
+        "• `/botadmin` - Super Admin Portal (Create orgs & manage platform)\n"
+        "• `/create_org` - Register new organization & initial admin\n"
+        "• `/list_orgs` - View all tenant organizations & user counts\n\n"
         "🔒 **Enterprise Multi-Tenancy Guarantee:**\n"
         "Every organization's data, embeddings, and semantic cache are strictly partitioned. "
         "No data leaks across tenants."
     )
-    await safe_reply(msg, help_text, parse_mode="Markdown")
+    await safe_reply(msg, help_text)
 
 
 async def handle_logout(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -505,7 +546,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         async with AsyncSessionLocal() as session:
             success, reply = await auth_service.confirm_employee_login(session, tg_user_id)
             kb = get_employee_menu_keyboard() if success else None
-            await query.edit_message_text(reply, parse_mode="Markdown")
+            await safe_edit(query, reply)
             if success:
                 await safe_reply(query.message, "💡 You are now ready to chat! Ask any question about your organization's documents.", reply_markup=kb)
         return
@@ -517,13 +558,13 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 auth_state=AuthState.UNAUTHENTICATED.value,
                 auth_context={}
             )
-            await query.edit_message_text("Authentication cancelled. Type `/start` to begin again.", parse_mode="Markdown")
+            await safe_edit(query, "Authentication cancelled. Type `/user` to begin again.")
         return
     elif data == "admin_confirm_login":
         async with AsyncSessionLocal() as session:
             success, reply = await auth_service.confirm_admin_login(session, tg_user_id)
             kb = get_admin_menu_keyboard() if success else None
-            await query.edit_message_text(reply, parse_mode="Markdown")
+            await safe_edit(query, reply)
             if success:
                 await safe_reply(query.message, "🛡️ Admin session unlocked. Use the menu buttons below to manage your organization:", reply_markup=kb)
         return
@@ -535,7 +576,13 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 auth_state=AuthState.UNAUTHENTICATED.value,
                 auth_context={}
             )
-            await query.edit_message_text("Admin authentication cancelled. Type `/admin` to begin again.", parse_mode="Markdown")
+            await safe_edit(query, "Admin authentication cancelled. Type `/admin` to begin again.")
+        return
+    elif data == "start_user_auth":
+        await handle_user(update, context)
+        return
+    elif data == "start_admin_auth":
+        await handle_admin_command(update, context)
         return
 
     await query.answer()
@@ -545,7 +592,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
 
         if data == "logout":
             reply = await auth_service.logout(session, tg_user_id)
-            await query.edit_message_text(reply, parse_mode="Markdown")
+            await safe_edit(query, reply)
         elif data == "help":
             await handle_help(update, context)
         elif data == "admin_stats":
