@@ -76,7 +76,7 @@ async def lifespan(app: FastAPI):
     # Shutdown
     if telegram_app:
         logger.info("Shutting down Telegram Bot...")
-        if settings.TELEGRAM_MODE == "polling" and telegram_app.updater.running:
+        if settings.telegram.mode == "polling" and telegram_app.updater and telegram_app.updater.running:
             await telegram_app.updater.stop()
         await telegram_app.stop()
         await telegram_app.shutdown()
