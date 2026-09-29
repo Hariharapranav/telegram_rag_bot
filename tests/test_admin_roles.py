@@ -76,3 +76,27 @@ async def test_org_admin_delete_document(db_session):
     # Verify deleted
     docs_after = await document_service.list_documents(db_session, org.id)
     assert not any(d["id"] == doc_id for d in docs_after)
+
+
+@pytest.mark.asyncio
+async def test_docx_text_extraction():
+    import io
+    import zipfile
+    from app.rag.ingestion import document_ingestion
+
+    # Create a minimal in-memory .docx file
+    docx_stream = io.BytesIO()
+    xml_content = b"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+    <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+        <w:body>
+            <w:p><w:r><w:t>Slidio Company Remote Work Policy</w:t></w:r></w:p>
+            <w:p><w:r><w:t>Employees can work from anywhere up to 3 days per week.</w:t></w:r></w:p>
+        </w:body>
+    </w:document>"""
+
+    with zipfile.ZipFile(docx_stream, "w") as z:
+        z.writestr("word/document.xml", xml_content)
+
+    text = document_ingestion.extract_text_from_file(docx_stream.getvalue(), "policy.docx")
+    assert "Slidio Company Remote Work Policy" in text
+    assert "Employees can work from anywhere" in text

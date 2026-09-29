@@ -30,6 +30,7 @@ from app.admin.handlers import (
     handle_admin_users,
     handle_admin_usage,
     handle_admin_documents,
+    handle_admin_upload_prompt,
     handle_admin_document_upload
 )
 
@@ -83,6 +84,9 @@ def build_telegram_application() -> Application:
     app.add_handler(CommandHandler("admin_users", handle_admin_users))
     app.add_handler(CommandHandler("admin_usage", handle_admin_usage))
     app.add_handler(CommandHandler("admin_documents", handle_admin_documents))
+    app.add_handler(CommandHandler("upload", handle_admin_upload_prompt))
+    app.add_handler(CommandHandler("upload_doc", handle_admin_upload_prompt))
+    app.add_handler(CommandHandler("admin_upload", handle_admin_upload_prompt))
 
     # Handle /admin/xyz style commands via regex filter
     app.add_handler(MessageHandler(filters.Regex(r"^/admin/stats\b"), handle_admin_stats))
@@ -90,6 +94,7 @@ def build_telegram_application() -> Application:
     app.add_handler(MessageHandler(filters.Regex(r"^/admin/usage\b"), handle_admin_usage))
     app.add_handler(MessageHandler(filters.Regex(r"^/admin/documents\b"), handle_admin_documents))
     app.add_handler(MessageHandler(filters.Regex(r"^/admin/add_user\b"), handle_add_user))
+    app.add_handler(MessageHandler(filters.Regex(r"^/admin/upload\b"), handle_admin_upload_prompt))
 
     # Document upload handler (PDF, TXT, DOCX files)
     app.add_handler(MessageHandler(filters.Document.ALL, handle_admin_document_upload))

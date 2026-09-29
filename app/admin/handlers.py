@@ -1,5 +1,6 @@
 import logging
 import io
+from pathlib import Path
 from typing import Optional
 from telegram import Update
 from telegram.ext import ContextTypes
@@ -14,7 +15,11 @@ from app.auth.service import auth_service
 from app.auth.session import AuthState
 from app.admin.analytics import admin_analytics
 from app.services.document_service import document_service
-from app.telegram.keyboards import get_admin_menu_keyboard, get_bot_admin_menu_keyboard
+from app.telegram.keyboards import (
+    get_admin_menu_keyboard,
+    get_bot_admin_menu_keyboard,
+    get_documents_action_keyboard
+)
 
 logger = logging.getLogger(__name__)
 
@@ -270,6 +275,43 @@ async def handle_admin_command(update: Update, context: ContextTypes.DEFAULT_TYP
             )
             return
 
+        # Check if already authenticated user has admin role in the database
+        if user_sess.user_id and user_sess.organization_id:
+            user_repo = UserRepository(session)
+            db_user = await user_repo.get_by_id(user_sess.user_id)
+            if db_user and db_user.role == "admin":
+                repo = TelegramSessionRepository(session)
+                await repo.upsert_session(
+                    telegram_user_id=tg_user_id,
+                    user_id=db_user.id,
+                    organization_id=db_user.organization_id,
+                    role="admin",
+                    auth_state=AuthState.AUTHENTICATED.value,
+                    auth_context={}
+                )
+                reply_text = (
+                    f"🛡️ **Admin Control Panel**\n"
+                    f"🏢 Organization: `{db_user.organization_id}`\n"
+                    f"👤 Admin: **{db_user.name}** (`{db_user.employee_id}`)\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "Available commands:\n"
+                    "• `➕ Add User` / `/add_user` - Register an employee or admin\n"
+                    "• `📊 Stats` / `/admin/stats` - Organization AI & latency metrics\n"
+                    "• `👥 Users` / `/admin/users` - User-level query & cost breakdown\n"
+                    "• `📈 Usage` / `/admin/usage` - Real-time query activity feed\n"
+                    "• `📁 Documents` / `/admin/documents` - Ingested catalog & delete\n"
+                    "• `/delete_doc <id>` - Delete an uploaded document\n"
+                    "• `/logout` - Log out of admin session\n\n"
+                    "💡 *You can also drag & drop any PDF or TXT file into this chat to ingest it.*"
+                )
+                await safe_reply(
+                    msg,
+                    reply_text,
+                    parse_mode="Markdown",
+                    reply_markup=get_admin_menu_keyboard()
+                )
+                return
+
         # Start admin login flow
         reply = await auth_service.start_admin_auth(session, tg_user_id)
         await safe_reply(msg, reply, parse_mode="Markdown")
@@ -467,7 +509,42 @@ async def handle_admin_documents(update: Update, context: ContextTypes.DEFAULT_T
             return
 
         report = await admin_analytics.get_documents_summary(session, user_sess.organization_id)
-        await safe_reply(msg, report, parse_mode="Markdown")
+        await safe_reply(msg, report, parse_mode="Markdown", reply_markup=get_documents_action_keyboard())
+
+
+async def handle_admin_upload_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /upload or 'Upload Document' button click: prompt admin on how to upload documents."""
+    if not update.effective_user or not update.effective_message:
+        return
+
+    msg = update.effective_message
+    tg_user_id = update.effective_user.id
+    async with AsyncSessionLocal() as session:
+        user_sess = await auth_service.get_session(session, tg_user_id)
+        if not user_sess.is_admin or not user_sess.organization_id:
+            await safe_reply(msg, "⛔ Access denied. Please authenticate as an Organization Admin via /admin first.")
+            return
+
+        org_repo = OrganizationRepository(session)
+        org = await org_repo.get_by_id(user_sess.organization_id)
+        org_name = org.name if org else user_sess.organization_id
+
+        prompt = (
+            "📤 **Upload Knowledge Base Document**\n"
+            "━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"🏢 **Target Organization:** `{org_name}`\n\n"
+            "📎 **How to Upload:**\n"
+            "Simply attach or drag & drop your document directly into this chat!\n\n"
+            "📋 **Allowed Formats:**\n"
+            "• 📄 **PDF** (`.pdf`)\n"
+            "• 📝 **Plain Text** (`.txt`)\n"
+            "• 📘 **Word Document** (`.docx`)\n"
+            "• 📑 **Markdown** (`.md`)\n\n"
+            "⚖️ **File Size Limit:** Up to **10 MB**\n"
+            "☁️ **Storage Location:** Supabase Storage (`enterprise-documents/{org_id}/`)\n\n"
+            "💡 *The document will be automatically chunked, embedded with Gemini, and indexed into pgvector.*"
+        )
+        await safe_reply(msg, prompt, parse_mode="Markdown")
 
 
 async def handle_admin_document_upload(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -485,7 +562,38 @@ async def handle_admin_document_upload(update: Update, context: ContextTypes.DEF
 
         doc = msg.document
         filename = doc.file_name or "uploaded_document.pdf"
-        status_msg = await safe_reply(msg, f"⏳ Ingesting `{filename}`... extracting text & generating embeddings.", parse_mode="Markdown")
+        ext = Path(filename).suffix.lower()
+
+        # Enforce allowed formats
+        ALLOWED_EXTENSIONS = {".pdf", ".txt", ".docx", ".md"}
+        if ext not in ALLOWED_EXTENSIONS:
+            await safe_reply(
+                msg,
+                f"❌ **Unsupported File Format: `{ext or 'unknown'}`**\n\n"
+                "Allowed document formats are:\n"
+                "• 📄 **PDF** (`.pdf`)\n"
+                "• 📝 **Plain Text** (`.txt`)\n"
+                "• 📘 **Word Document** (`.docx`)\n"
+                "• 📑 **Markdown** (`.md`)\n\n"
+                "Please upload a document with an allowed extension.",
+                parse_mode="Markdown"
+            )
+            return
+
+        # Enforce file size limit (10 MB)
+        MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024  # 10 MB
+        if doc.file_size and doc.file_size > MAX_FILE_SIZE_BYTES:
+            size_mb = round(doc.file_size / (1024 * 1024), 2)
+            await safe_reply(
+                msg,
+                f"❌ **File Too Large: {size_mb} MB**\n\n"
+                "The maximum allowed file size for knowledge documents is **10 MB**.\n"
+                "Please reduce your file size and try again.",
+                parse_mode="Markdown"
+            )
+            return
+
+        status_msg = await safe_reply(msg, f"⏳ Ingesting `{filename}` into Supabase Storage & generating vector embeddings...", parse_mode="Markdown")
 
         try:
             tg_file = await context.bot.get_file(doc.file_id)
@@ -501,15 +609,17 @@ async def handle_admin_document_upload(update: Update, context: ContextTypes.DEF
             )
 
             await status_msg.edit_text(
-                f"✅ **Document Ingested Successfully!**\n\n"
+                f"✅ **Document Uploaded & Ingested!**\n\n"
                 f"📄 **File:** `{res['filename']}`\n"
                 f"🆔 **Document ID:** `{res['document_id']}`\n"
+                f"☁️ **Storage:** Supabase Storage (`{res['storage_path']}`)\n"
                 f"📦 **Size:** `{round(res['file_size']/1024, 1)} KB`\n"
                 f"🧩 **Indexed Chunks:** `{res['chunk_count']}`\n"
                 f"🏢 **Organization:** `{user_sess.organization_id}`\n\n"
                 f"Employees can now query information from this document in Telegram.\n"
                 f"To delete this document later: `/delete_doc {res['document_id']}`",
-                parse_mode="Markdown"
+                parse_mode="Markdown",
+                reply_markup=get_documents_action_keyboard()
             )
         except Exception as e:
             logger.error("Failed to ingest document: %s", e)

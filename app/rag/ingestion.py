@@ -30,6 +30,22 @@ class DocumentIngestionPipeline:
                 if txt.strip():
                     pages_text.append(f"[Page {i+1}]\n{txt.strip()}")
             return "\n\n".join(pages_text)
+        elif lower_name.endswith(".docx"):
+            try:
+                import zipfile
+                import xml.etree.ElementTree as ET
+                with zipfile.ZipFile(io.BytesIO(content_bytes)) as z:
+                    xml_content = z.read("word/document.xml")
+                    tree = ET.fromstring(xml_content)
+                    paragraphs = []
+                    for p in tree.iter("{http://schemas.openxmlformats.org/wordprocessingml/2006/main}p"):
+                        texts = [node.text for node in p.iter("{http://schemas.openxmlformats.org/wordprocessingml/2006/main}t") if node.text]
+                        if texts:
+                            paragraphs.append("".join(texts))
+                    return "\n\n".join(paragraphs)
+            except Exception as e:
+                logger.error("Failed to parse docx file %s: %s", filename, e)
+                return ""
         else:
             # Assume UTF-8 text (or fallback latin-1)
             try:

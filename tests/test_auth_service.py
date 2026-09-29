@@ -81,16 +81,63 @@ async def test_admin_authentication_flow(db_session):
     msg2 = await auth_srv.process_admin_org(db_session, tg_id, "org_admin_1")
     assert "Admin Corp" in msg2
 
-    # Step 3: Enter Admin Email
-    msg3 = await auth_srv.process_admin_credential(db_session, tg_id, "sarah@admincorp.com")
-    assert "Sarah Connor" in msg3
+    # Step 3: Enter Admin Email -> Admin Profile Card with Role
+    found, card = await auth_srv.process_admin_credential(db_session, tg_id, "sarah@admincorp.com")
+    assert found is True
+    assert "Sarah Connor" in card
+    assert "Administrator" in card
+    sess = await auth_srv.get_session(db_session, tg_id)
+    assert sess.auth_state == AuthState.AWAITING_ADMIN_CONFIRM
 
-    # Step 4: Verify Admin OTP
-    otp_key = f"admin:{admin_user.id}"
-    code = await auth_srv.otp_service.generate_otp(otp_key)
-    success, ok_msg = await auth_srv.verify_admin_otp(db_session, tg_id, code)
+    # Step 4: One-Tap Confirm & Sign In as Admin
+    success, ok_msg = await auth_srv.confirm_admin_login(db_session, tg_id)
     assert success is True
-    assert "Admin authentication successful" in ok_msg
+    assert "Admin Portal Authenticated" in ok_msg
+    assert "Sarah Connor" in ok_msg
 
+    final_sess = await auth_srv.get_session(db_session, tg_id)
+    assert final_sess.is_admin is True
+    assert final_sess.is_authenticated is True
+
+
+@pytest.mark.asyncio
+async def test_admin_case_insensitive_emp_id_login(db_session):
+    auth_srv = AuthService()
+    org_repo = OrganizationRepository(db_session)
+    user_repo = UserRepository(db_session)
+
+    org = await org_repo.create("Slidio Inc", org_id="slidio_org")
+    admin_user = await user_repo.create(
+        organization_id="slidio_org",
+        employee_id="Sli-001",
+        name="Pranav",
+        email="pranav@gmail.com",
+        role="admin"
+    )
+
+    tg_id = 777123
+
+    # Step 1: /admin
+    await auth_srv.start_admin_auth(db_session, tg_id)
+
+    # Step 2: Org name in mixed case
+    org_reply = await auth_srv.process_admin_org(db_session, tg_id, "slidio inc")
+    assert "Slidio Inc" in org_reply
+
+    # Step 3: Enter Employee ID with different casing (e.g. sli-001 or Sli-001 or SLI-001)
+    found, card = await auth_srv.process_admin_credential(db_session, tg_id, "Sli-001")
+    assert found is True
+    assert "Pranav" in card
+    assert "Administrator" in card
+    assert "Sli-001" in card
+
+    # Step 4: Confirm login
+    success, ok_msg = await auth_srv.confirm_admin_login(db_session, tg_id)
+    assert success is True
+    assert "Admin Portal Authenticated" in ok_msg
+
+    # Verify session is authenticated as admin without email OTP
     sess = await auth_srv.get_session(db_session, tg_id)
     assert sess.is_admin is True
+    assert sess.is_authenticated is True
+    assert sess.organization_id == "slidio_org"

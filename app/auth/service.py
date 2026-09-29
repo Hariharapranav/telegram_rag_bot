@@ -248,62 +248,109 @@ class AuthService:
             "Please enter your **Admin Email** or **Employee ID**:"
         )
 
-    async def process_admin_credential(self, db: AsyncSession, telegram_user_id: int, cred_input: str) -> str:
-        """Step 4: Verify user exists, has admin role in this organization, send OTP."""
+    async def process_admin_credential(self, db: AsyncSession, telegram_user_id: int, cred_input: str) -> Tuple[bool, str]:
+        """Step 4: Verify user exists, has admin role in this organization, prepare one-tap admin sign in."""
         session = await self.get_session(db, telegram_user_id)
         org_id = session.auth_context.get("organization_id")
+        org_name = session.auth_context.get("organization_name", org_id or "your organization")
         if not org_id:
-            return "⚠️ Session lost. Please type /admin to restart."
+            return False, "⚠️ Session lost. Please type /admin to restart."
 
-        cred = cred_input.strip().lower()
+        cred = cred_input.strip()
         user_repo = UserRepository(db)
 
-        # Lookup by email or employee ID
+        # Lookup by email or employee ID (case-insensitive)
         user = await user_repo.get_by_email(cred, org_id)
         if not user:
-            user = await user_repo.get_by_employee_id(org_id, cred.upper())
+            user = await user_repo.get_by_employee_id(org_id, cred)
 
-        if not user or user.role != "admin":
-            return (
-                "❌ Access Denied: We could not find an Administrator account matching "
-                f"`{cred_input}` in this organization.\n"
+        if not user:
+            return False, (
+                "❌ Access Denied: We could not find an account matching "
+                f"`{cred}` in *{org_name}*.\n"
+                "Please verify your Employee ID or Admin Email and try again."
+            )
+
+        if user.role != "admin":
+            return False, (
+                f"❌ Access Denied: `{user.name}` ({user.employee_id}) is registered as an **Employee**, not an Administrator.\n"
                 "Only authorized administrators can access this portal."
             )
 
-        # Generate OTP
-        otp_key = f"admin:{user.id}"
-        otp_code = await self.otp_service.generate_otp(otp_key)
-
+        # Transition to AWAITING_ADMIN_CONFIRM
         repo = TelegramSessionRepository(db)
         ctx = session.auth_context
         ctx.update({
             "user_id": user.id,
+            "organization_id": user.organization_id,
+            "organization_name": org_name,
             "role": "admin",
-            "name": user.name,
+            "employee_id": user.employee_id,
             "email": user.email,
-            "employee_id": user.employee_id
+            "name": user.name
         })
         await repo.upsert_session(
             telegram_user_id=telegram_user_id,
-            auth_state=AuthState.AWAITING_ADMIN_OTP.value,
+            auth_state=AuthState.AWAITING_ADMIN_CONFIRM.value,
             auth_context=ctx
         )
 
-        masked = mask_email(user.email)
-        mock_hint = f"\n\n🔐 [Demo Verification Channel: OTP is `{otp_code}`]" if settings.MOCK_OTP_MODE else ""
+        card = (
+            f"🛡️ *Admin Profile Identified*\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"• **Name:** {user.name}\n"
+            f"• **Employee ID:** `{user.employee_id}`\n"
+            f"• **Organization:** {org_name}\n"
+            f"• **Role:** Administrator 🛡️\n\n"
+            f"Tap **Confirm & Sign In** below to authenticate:"
+        )
+        return True, card
 
-        return (
-            f"👤 Admin identified: `{user.name}`\n"
-            f"A one-time verification code has been dispatched to `{masked}`.\n\n"
-            f"Please enter the 6-digit OTP code to unlock Admin Commands:{mock_hint}"
+    async def confirm_admin_login(self, db: AsyncSession, telegram_user_id: int) -> Tuple[bool, str]:
+        """Step 5: Establish authenticated admin session upon one-tap confirmation."""
+        session = await self.get_session(db, telegram_user_id)
+        context = session.auth_context
+        user_id = context.get("user_id")
+
+        if not user_id:
+            return False, "⚠️ Session expired. Please type /admin to restart authentication."
+
+        repo = TelegramSessionRepository(db)
+        await repo.upsert_session(
+            telegram_user_id=telegram_user_id,
+            user_id=user_id,
+            organization_id=context["organization_id"],
+            role="admin",
+            auth_state=AuthState.AUTHENTICATED.value,
+            auth_context={}
+        )
+
+        org_name = context.get("organization_name", context.get("organization_id"))
+        admin_name = context.get("name", "Administrator")
+        emp_id = context.get("employee_id", "")
+        emp_id_str = f" (`{emp_id}`)" if emp_id else ""
+        return True, (
+            f"🛡️ **Admin Portal Authenticated** ✅\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"👋 Welcome, **{admin_name}**{emp_id_str}!\n"
+            f"🏢 Organization: `{org_name}`\n"
+            f"🛡️ Role: Administrator\n\n"
+            "Available commands:\n"
+            "• `➕ Add User` / `/add_user` - Register an employee or admin\n"
+            "• `📊 Stats` / `/admin/stats` - Organization AI & latency metrics\n"
+            "• `👥 Users` / `/admin/users` - User-level query & cost breakdown\n"
+            "• `📈 Usage` / `/admin/usage` - Real-time query activity feed\n"
+            "• `📁 Documents` / `/admin/documents` - Ingested catalog & delete\n"
+            "• `/logout` - Log out of admin session\n\n"
+            "💡 *You can also drag & drop any PDF or TXT file into this chat to ingest it.*"
         )
 
     async def verify_admin_otp(self, db: AsyncSession, telegram_user_id: int, otp_input: str) -> Tuple[bool, str]:
         """Step 5 & 6: Verify Admin OTP and grant admin session."""
         session = await self.get_session(db, telegram_user_id)
-        ctx = session.auth_context
-        user_id = ctx.get("user_id")
-        org_id = ctx.get("organization_id")
+        ctx = session.auth_context or {}
+        user_id = ctx.get("user_id") or session.user_id
+        org_id = ctx.get("organization_id") or session.organization_id
 
         if not user_id or not org_id:
             return False, "⚠️ Session expired. Please type /admin to restart."
@@ -323,6 +370,7 @@ class AuthService:
             auth_state=AuthState.AUTHENTICATED.value,
             auth_context={}
         )
+        return True, "Admin authentication successful ✅"
 
         return True, (
             "Admin authentication successful! 🛡️✅\n\n"

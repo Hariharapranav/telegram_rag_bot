@@ -21,19 +21,43 @@ def get_employee_confirm_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(keyboard)
 
 
+def get_admin_confirm_keyboard() -> InlineKeyboardMarkup:
+    """Confirmation keyboard for one-tap admin authentication."""
+    keyboard = [
+        [
+            InlineKeyboardButton("✅ Confirm & Sign In", callback_data="admin_confirm_login"),
+            InlineKeyboardButton("❌ Cancel", callback_data="admin_cancel_login")
+        ]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
 def get_admin_menu_keyboard() -> InlineKeyboardMarkup:
     keyboard = [
+        [
+            InlineKeyboardButton("📤 Upload Doc", callback_data="admin_upload_doc"),
+            InlineKeyboardButton("📁 Documents", callback_data="admin_documents"),
+        ],
         [
             InlineKeyboardButton("📊 Stats", callback_data="admin_stats"),
             InlineKeyboardButton("👥 Users", callback_data="admin_users"),
         ],
         [
             InlineKeyboardButton("➕ Add User", callback_data="admin_add_user"),
-            InlineKeyboardButton("📁 Documents", callback_data="admin_documents"),
+            InlineKeyboardButton("📈 Usage Feed", callback_data="admin_usage"),
         ],
         [
-            InlineKeyboardButton("📈 Usage Feed", callback_data="admin_usage"),
             InlineKeyboardButton("🔒 Logout", callback_data="logout")
+        ]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_documents_action_keyboard() -> InlineKeyboardMarkup:
+    keyboard = [
+        [
+            InlineKeyboardButton("📤 Upload Document", callback_data="admin_upload_doc"),
+            InlineKeyboardButton("🔄 Refresh List", callback_data="admin_documents")
         ]
     ]
     return InlineKeyboardMarkup(keyboard)

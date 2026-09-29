@@ -19,9 +19,11 @@ from app.services.usage_tracker import usage_tracker
 from app.telegram.keyboards import (
     get_employee_menu_keyboard,
     get_employee_confirm_keyboard,
+    get_admin_confirm_keyboard,
     get_admin_menu_keyboard,
     get_bot_admin_menu_keyboard,
-    get_answer_action_keyboard
+    get_answer_action_keyboard,
+    get_documents_action_keyboard
 )
 
 # In-memory store for recent query sources (query_id -> list of source filenames)
@@ -31,7 +33,8 @@ from app.admin.handlers import (
     process_add_user_input,
     handle_create_org,
     handle_list_orgs,
-    handle_add_user
+    handle_add_user,
+    handle_admin_upload_prompt
 )
 
 logger = logging.getLogger(__name__)
@@ -265,8 +268,19 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
             return
 
         elif state == AuthState.AWAITING_ADMIN_CREDENTIAL:
-            reply = await auth_service.process_admin_credential(session, tg_user_id, text)
-            await safe_reply(msg, reply, parse_mode="Markdown")
+            found, reply = await auth_service.process_admin_credential(session, tg_user_id, text)
+            kb = get_admin_confirm_keyboard() if found else None
+            await safe_reply(msg, reply, parse_mode="Markdown", reply_markup=kb)
+            return
+
+        elif state == AuthState.AWAITING_ADMIN_CONFIRM:
+            if text.strip().lower() in ("yes", "y", "confirm", "ok", "login"):
+                success, reply = await auth_service.confirm_admin_login(session, tg_user_id)
+                kb = get_admin_menu_keyboard() if success else None
+                await safe_reply(msg, reply, parse_mode="Markdown", reply_markup=kb)
+            else:
+                kb = get_admin_confirm_keyboard()
+                await safe_reply(msg, "Please tap **✅ Confirm & Sign In** below to authenticate as Administrator:", parse_mode="Markdown", reply_markup=kb)
             return
 
         elif state == AuthState.AWAITING_ADMIN_OTP:
@@ -505,6 +519,24 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             )
             await query.edit_message_text("Authentication cancelled. Type `/start` to begin again.", parse_mode="Markdown")
         return
+    elif data == "admin_confirm_login":
+        async with AsyncSessionLocal() as session:
+            success, reply = await auth_service.confirm_admin_login(session, tg_user_id)
+            kb = get_admin_menu_keyboard() if success else None
+            await query.edit_message_text(reply, parse_mode="Markdown")
+            if success:
+                await safe_reply(query.message, "🛡️ Admin session unlocked. Use the menu buttons below to manage your organization:", reply_markup=kb)
+        return
+    elif data == "admin_cancel_login":
+        async with AsyncSessionLocal() as session:
+            repo = TelegramSessionRepository(session)
+            await repo.upsert_session(
+                telegram_user_id=tg_user_id,
+                auth_state=AuthState.UNAUTHENTICATED.value,
+                auth_context={}
+            )
+            await query.edit_message_text("Admin authentication cancelled. Type `/admin` to begin again.", parse_mode="Markdown")
+        return
 
     await query.answer()
 
@@ -543,7 +575,12 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 return
             from app.admin.analytics import admin_analytics
             report = await admin_analytics.get_documents_summary(session, user_sess.organization_id)
-            await safe_reply(query.message, report, parse_mode="Markdown")
+            await safe_reply(query.message, report, parse_mode="Markdown", reply_markup=get_documents_action_keyboard())
+        elif data == "admin_upload_doc":
+            if not user_sess.is_admin or not user_sess.organization_id:
+                await safe_reply(query.message, "⛔ Admin credentials required.")
+                return
+            await handle_admin_upload_prompt(update, context)
         elif data == "admin_add_user":
             if not user_sess.is_admin or not user_sess.organization_id:
                 await safe_reply(query.message, "⛔ Admin credentials required.")

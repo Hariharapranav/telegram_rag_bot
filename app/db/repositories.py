@@ -22,12 +22,16 @@ class OrganizationRepository:
         self.session = session
 
     async def get_by_id(self, org_id: str) -> Optional[Organization]:
-        stmt = select(Organization).where(Organization.id == org_id)
+        stmt = select(Organization).where(
+            func.lower(Organization.id) == org_id.strip().lower()
+        )
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
     async def get_by_name(self, name: str) -> Optional[Organization]:
-        stmt = select(Organization).where(Organization.name == name)
+        stmt = select(Organization).where(
+            func.lower(Organization.name) == name.strip().lower()
+        )
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
@@ -77,7 +81,7 @@ class UserRepository:
     async def get_by_employee_id(self, org_id: str, employee_id: str) -> Optional[User]:
         stmt = select(User).where(
             User.organization_id == org_id,
-            User.employee_id == employee_id,
+            func.lower(User.employee_id) == employee_id.strip().lower(),
             User.status == "active"
         )
         result = await self.session.execute(stmt)
@@ -86,14 +90,17 @@ class UserRepository:
     async def find_by_employee_id(self, employee_id: str) -> List[User]:
         """Search by employee_id across active organizations."""
         stmt = select(User).where(
-            User.employee_id == employee_id,
+            func.lower(User.employee_id) == employee_id.strip().lower(),
             User.status == "active"
         )
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
     async def get_by_email(self, email: str, org_id: Optional[str] = None) -> Optional[User]:
-        stmt = select(User).where(User.email == email.strip().lower(), User.status == "active")
+        stmt = select(User).where(
+            func.lower(User.email) == email.strip().lower(),
+            User.status == "active"
+        )
         if org_id:
             stmt = stmt.where(User.organization_id == org_id)
         result = await self.session.execute(stmt)
