@@ -50,31 +50,31 @@ A production-grade, multi-tenant enterprise **Retrieval-Augmented Generation (RA
 
 ```mermaid
 flowchart TD
-    User([Telegram User]) -->|Natural Language Query| TG[Telegram Bot API]
-    TG -->|Update| App[FastAPI Gateway / Polling Service]
-    App --> Auth{Authenticated?}
-    Auth -- No --> Menu[/start Greeting & Navigation Menu]
-    Menu -->|/user| EmpAuth[Employee Sign In & Verification]
-    Menu -->|/admin| AdminAuth[Admin Sign In & Confirmation]
-    Auth -- Yes --> CacheCheck[Tenant-Isolated Semantic Cache]
+    User(["Telegram User"]) -->|"Natural Language Query"| TG["Telegram Bot API"]
+    TG -->|"Update"| App["FastAPI Gateway / Polling Service"]
+    App --> Auth{"Authenticated?"}
+    Auth -- "No" --> Menu["/start Greeting & Navigation Menu"]
+    Menu -->|"/user"| EmpAuth["Employee Sign In & Verification"]
+    Menu -->|"/admin"| AdminAuth["Admin Sign In & Confirmation"]
+    Auth -- "Yes" --> CacheCheck["Tenant-Isolated Semantic Cache"]
 
-    CacheCheck -->|Cache HIT| CachedReply[⚡ Instant Response <br/> 0 Tokens / $0.00]
-    CachedReply --> CardFormat[HTML Executive Card Formatter]
+    CacheCheck -->|"Cache HIT"| CachedReply["⚡ Instant Response <br/> 0 Tokens / $0.00"]
+    CachedReply --> CardFormat["HTML Executive Card Formatter"]
 
-    CacheCheck -->|Cache MISS| Router[Query Complexity Router]
-    Router -->|Simple Query| FlashLite[Gemini Flash-Lite]
-    Router -->|Complex Query| Flash[Gemini Flash]
+    CacheCheck -->|"Cache MISS"| Router["Query Complexity Router"]
+    Router -->|"Simple Query"| FlashLite["Gemini Flash-Lite"]
+    Router -->|"Complex Query"| Flash["Gemini Flash"]
 
-    Router --> PG[(Supabase / PostgreSQL + pgvector)]
-    PG -->|Top-K Chunks Scoped by Org ID| Grounding[Grounded Context Synthesis]
+    Router --> PG[("Supabase / PostgreSQL + pgvector")]
+    PG -->|"Top-K Chunks Scoped by Org ID"| Grounding["Grounded Context Synthesis"]
     
     FlashLite & Flash --> Grounding
-    Grounding --> GenAnswer[Grounded Answer & Citations]
-    GenAnswer --> StoreCache[Store in Redis Semantic Cache]
-    StoreCache --> LogUsage[(Audit & Telemetry Logger)]
+    Grounding --> GenAnswer["Grounded Answer & Citations"]
+    GenAnswer --> StoreCache["Store in Redis Semantic Cache"]
+    StoreCache --> LogUsage[("Audit & Telemetry Logger")]
     LogUsage --> CardFormat
 
-    CardFormat -->|Executive Card + Actions| Outbox[Telegram Chat Reply]
+    CardFormat -->|"Executive Card + Actions"| Outbox["Telegram Chat Reply"]
     Outbox --> User
 ```
 
