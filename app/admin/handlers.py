@@ -244,24 +244,19 @@ async def handle_admin_command(update: Update, context: ContextTypes.DEFAULT_TYP
         user_sess = await auth_service.get_session(session, tg_user_id)
 
         if user_sess.is_admin and user_sess.organization_id:
+            org_repo = OrganizationRepository(session)
+            org = await org_repo.get_by_id(user_sess.organization_id)
+            org_name = org.name if org else user_sess.organization_id
+
             reply_text = (
                 f"🛡️ **Admin Control Panel**\n"
-                f"🏢 Organization: `{user_sess.organization_id}`\n"
-                "━━━━━━━━━━━━━━━━━━━━━━\n"
-                "Available commands:\n"
-                "• `➕ Add User` / `/add_user` - Register an employee or admin\n"
-                "• `📊 Stats` / `/admin/stats` - Organization AI & latency metrics\n"
-                "• `👥 Users` / `/admin/users` - User-level query & cost breakdown\n"
-                "• `📈 Usage` / `/admin/usage` - Real-time query activity feed\n"
-                "• `📁 Documents` / `/admin/documents` - Ingested catalog & delete\n"
-                "• `/delete_doc <id>` - Delete an uploaded document\n"
-                "• `/logout` - Log out of admin session\n\n"
-                "💡 *You can also drag & drop any PDF or TXT file into this chat to ingest it.*"
+                f"━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"🏢 Organization: **{org_name}** (`{user_sess.organization_id}`)\n\n"
+                f"Use the menu buttons below to manage documents, users, and analytics:"
             )
             await safe_reply(
                 msg,
                 reply_text,
-                parse_mode="Markdown",
                 reply_markup=get_admin_menu_keyboard()
             )
             return
@@ -280,25 +275,20 @@ async def handle_admin_command(update: Update, context: ContextTypes.DEFAULT_TYP
                     auth_state=AuthState.AUTHENTICATED.value,
                     auth_context={}
                 )
+                org_repo = OrganizationRepository(session)
+                org = await org_repo.get_by_id(db_user.organization_id)
+                org_name = org.name if org else db_user.organization_id
+
                 reply_text = (
                     f"🛡️ **Admin Control Panel**\n"
-                    f"🏢 Organization: `{db_user.organization_id}`\n"
-                    f"👤 Admin: **{db_user.name}** (`{db_user.employee_id}`)\n"
-                    "━━━━━━━━━━━━━━━━━━━━━━\n"
-                    "Available commands:\n"
-                    "• `➕ Add User` / `/add_user` - Register an employee or admin\n"
-                    "• `📊 Stats` / `/admin/stats` - Organization AI & latency metrics\n"
-                    "• `👥 Users` / `/admin/users` - User-level query & cost breakdown\n"
-                    "• `📈 Usage` / `/admin/usage` - Real-time query activity feed\n"
-                    "• `📁 Documents` / `/admin/documents` - Ingested catalog & delete\n"
-                    "• `/delete_doc <id>` - Delete an uploaded document\n"
-                    "• `/logout` - Log out of admin session\n\n"
-                    "💡 *You can also drag & drop any PDF or TXT file into this chat to ingest it.*"
+                    f"━━━━━━━━━━━━━━━━━━━━━━\n"
+                    f"🏢 Organization: **{org_name}** (`{db_user.organization_id}`)\n"
+                    f"👤 Admin: **{db_user.name}** (`{db_user.employee_id}`)\n\n"
+                    f"Use the menu buttons below to manage documents, users, and analytics:"
                 )
                 await safe_reply(
                     msg,
                     reply_text,
-                    parse_mode="Markdown",
                     reply_markup=get_admin_menu_keyboard()
                 )
                 return

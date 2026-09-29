@@ -178,7 +178,7 @@ async def handle_logout(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     tg_user_id = update.effective_user.id
     async with AsyncSessionLocal() as session:
         reply = await auth_service.logout(session, tg_user_id)
-        await safe_reply(msg, reply, parse_mode="Markdown")
+        await safe_reply(msg, reply, reply_markup=get_start_keyboard())
 
 
 async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -564,9 +564,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         async with AsyncSessionLocal() as session:
             success, reply = await auth_service.confirm_admin_login(session, tg_user_id)
             kb = get_admin_menu_keyboard() if success else None
-            await safe_edit(query, reply)
-            if success:
-                await safe_reply(query.message, "🛡️ Admin session unlocked. Use the menu buttons below to manage your organization:", reply_markup=kb)
+            await safe_edit(query, reply, reply_markup=kb)
         return
     elif data == "admin_cancel_login":
         async with AsyncSessionLocal() as session:
@@ -592,7 +590,15 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
 
         if data == "logout":
             reply = await auth_service.logout(session, tg_user_id)
-            await safe_edit(query, reply)
+            await safe_edit(query, "🔒 *Session closed (Logged out)*")
+            if update.effective_chat:
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text=markdown_to_telegram_html(reply),
+                    parse_mode="HTML",
+                    reply_markup=get_start_keyboard()
+                )
+            return
         elif data == "help":
             await handle_help(update, context)
         elif data == "admin_stats":

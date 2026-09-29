@@ -333,16 +333,9 @@ class AuthService:
             f"🛡️ **Admin Portal Authenticated** ✅\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
             f"👋 Welcome, **{admin_name}**{emp_id_str}!\n"
-            f"🏢 Organization: `{org_name}`\n"
+            f"🏢 Organization: **{org_name}**\n"
             f"🛡️ Role: Administrator\n\n"
-            "Available commands:\n"
-            "• `➕ Add User` / `/add_user` - Register an employee or admin\n"
-            "• `📊 Stats` / `/admin/stats` - Organization AI & latency metrics\n"
-            "• `👥 Users` / `/admin/users` - User-level query & cost breakdown\n"
-            "• `📈 Usage` / `/admin/usage` - Real-time query activity feed\n"
-            "• `📁 Documents` / `/admin/documents` - Ingested catalog & delete\n"
-            "• `/logout` - Log out of admin session\n\n"
-            "💡 *You can also drag & drop any PDF or TXT file into this chat to ingest it.*"
+            f"Use the menu buttons below to manage your organization, or upload policy documents directly into this chat:"
         )
 
     async def verify_admin_otp(self, db: AsyncSession, telegram_user_id: int, otp_input: str) -> Tuple[bool, str]:
@@ -386,8 +379,11 @@ class AuthService:
         repo = TelegramSessionRepository(db)
         await repo.delete_session(telegram_user_id)
         return (
-            "🔒 You have been securely logged out.\n\n"
-            "Use `/user` to log in as an employee or `/admin` to log in as an administrator."
+            "🔒 **Logged Out Successfully**\n"
+            "━━━━━━━━━━━━━━━━━━━━━━\n"
+            "You have been securely signed out of your session.\n\n"
+            "• Send `/user` to log in as an employee\n"
+            "• Send `/admin` to log in as an administrator"
         )
 
 
