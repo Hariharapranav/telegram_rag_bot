@@ -81,9 +81,10 @@ class DocumentIngestionPipeline:
                 url = f"{settings.supabase.url}/storage/v1/object/{settings.supabase.bucket}/{storage_path}"
                 headers = {
                     "Authorization": f"Bearer {settings.supabase.service_role_key_plain}",
+                    "apiKey": settings.supabase.service_role_key_plain,
+                    "apikey": settings.supabase.service_role_key_plain,
                     "Content-Type": content_type,
                     "x-upsert": "true"
-                    
                 }
                 async with httpx.AsyncClient(timeout=15.0) as client:
                     resp = await client.post(url, headers=headers, content=content_bytes)

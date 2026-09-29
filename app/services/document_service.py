@@ -1,6 +1,8 @@
 import logging
 from typing import List, Dict, Any, Optional
+import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
+from app.config import settings
 from app.db.repositories import DocumentRepository
 from app.rag.ingestion import document_ingestion
 
@@ -49,9 +51,31 @@ class DocumentService:
         organization_id: str,
         document_id: str
     ) -> bool:
-        """Delete document and all associated chunks."""
+        """Delete document, all associated chunks, and remove from Supabase Storage."""
         repo = DocumentRepository(session)
-        return await repo.delete(document_id, organization_id)
+        doc = await repo.get_by_id(document_id, organization_id)
+        if not doc:
+            return False
+
+        storage_path = doc.storage_path
+        deleted = await repo.delete(document_id, organization_id)
+
+        if deleted and storage_path and settings.supabase.is_configured:
+            try:
+                url = f"{settings.supabase.url}/storage/v1/object/{settings.supabase.bucket}"
+                headers = {
+                    "Authorization": f"Bearer {settings.supabase.service_role_key_plain}",
+                    "apiKey": settings.supabase.service_role_key_plain,
+                    "apikey": settings.supabase.service_role_key_plain,
+                    "Content-Type": "application/json"
+                }
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    await client.request("DELETE", url, headers=headers, json={"prefixes": [storage_path]})
+                    logger.info("Deleted %s from Supabase Storage bucket %s", storage_path, settings.supabase.bucket)
+            except Exception as e:
+                logger.warning("Failed to delete %s from Supabase Storage: %s", storage_path, e)
+
+        return deleted
 
 
 document_service = DocumentService()

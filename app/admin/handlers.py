@@ -588,7 +588,7 @@ async def handle_admin_document_upload(update: Update, context: ContextTypes.DEF
                 content_bytes=content_bytes
             )
 
-            await status_msg.edit_text(
+            upload_card = (
                 f"✅ **Document Uploaded & Ready!**\n\n"
                 f"📄 **File:** `{res['filename']}`\n"
                 f"🆔 **Document ID:** `{res['document_id']}`\n"
@@ -596,10 +596,20 @@ async def handle_admin_document_upload(update: Update, context: ContextTypes.DEF
                 f"🏢 **Organization:** `{user_sess.organization_id}`\n"
                 f"🟢 **Status:** Active & Searchable\n\n"
                 f"Employees can now query information from this document in Telegram.\n"
-                f"To delete this document later: `/delete_doc {res['document_id']}`",
-                parse_mode="Markdown",
-                reply_markup=get_documents_action_keyboard()
+                f"To delete this document later: `/delete_doc {res['document_id']}`"
             )
+            try:
+                await status_msg.edit_text(
+                    markdown_to_telegram_html(upload_card),
+                    parse_mode="HTML",
+                    reply_markup=get_documents_action_keyboard()
+                )
+            except Exception:
+                await status_msg.edit_text(
+                    strip_markdown(upload_card),
+                    parse_mode=None,
+                    reply_markup=get_documents_action_keyboard()
+                )
         except Exception as e:
             logger.error("Failed to ingest document: %s", e)
             await status_msg.edit_text(f"❌ Failed to process document: {str(e)}")
